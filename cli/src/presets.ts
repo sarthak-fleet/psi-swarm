@@ -111,6 +111,21 @@ export const PRESET_GROUPS: Record<string, string[]> = {
   mobile: ['mobile-slow', 'mobile-mid', 'mobile-fast'],
   desktop: ['desktop'],
   psi: ['mobile-mid', 'desktop'],
+  // Lighter "what most of my real users see" set.
+  fast: ['mobile-fast', 'desktop'],
+};
+
+/**
+ * Traffic-profile weightings used to compute a single "weighted CWV verdict"
+ * across multiple presets in the report. Weights don't need to sum to 1 —
+ * they are normalised at use time. Match these to your actual traffic mix
+ * (devices × connection quality) for the most honest fleet-level number.
+ */
+export const TRAFFIC_PROFILES: Record<string, Record<string, number>> = {
+  'mobile-heavy': { 'mobile-slow': 0.15, 'mobile-mid': 0.55, 'mobile-fast': 0.20, desktop: 0.10 },
+  'desktop-heavy': { 'mobile-mid': 0.15, 'mobile-fast': 0.15, desktop: 0.70 },
+  balanced: { 'mobile-mid': 0.5, desktop: 0.5 },
+  'mobile-only': { 'mobile-slow': 0.25, 'mobile-mid': 0.5, 'mobile-fast': 0.25 },
 };
 
 export function resolvePresets(spec: string): Preset[] {

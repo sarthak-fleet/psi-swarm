@@ -4,6 +4,7 @@ import boxen from 'boxen';
 import type { RunResult } from './runner.js';
 import { computeStats, type Stats } from './stats.js';
 import { diagnosePreset, rankOpportunities, formatAggregatedAudit, type Diagnosis } from './diagnose.js';
+import type { CruxRecord } from './crux.js';
 
 type MetricKey =
   | 'lcp'
@@ -168,10 +169,19 @@ function overallVerdict(allResults: RunResult[]): string {
   );
 }
 
+export interface RenderOptions {
+  cruxByFormFactor?: {
+    mobile?: CruxRecord | null;
+    desktop?: CruxRecord | null;
+  };
+  trafficProfile?: { name: string; weights: Record<string, number> };
+}
+
 export function renderSwarmReport(
   url: string,
   results: RunResult[],
   elapsedMs: number,
+  renderOpts: RenderOptions = {},
 ): string {
   const okResults = results.filter((r) => !r.error);
   const errors = results.length - okResults.length;
@@ -215,6 +225,16 @@ export function renderSwarmReport(
   const verdict = overallVerdict(okResults);
   if (verdict) sections.push(verdict);
 
+  // Traffic-weighted fleet verdict across presets.
+  if (renderOpts.trafficProfile) {
+    const weighted = renderWeightedVerdict(byPreset, renderOpts.trafficProfile);
+    if (weighted) sections.push(weighted);
+  }
+
+  // CrUX field data — real-user p75 alongside our lab numbers.
+  const cruxSection = renderCrux(renderOpts.cruxByFormFactor);
+  if (cruxSection) sections.push(cruxSection);
+
   // "Why?" — surface Lighthouse opportunities + LCP element if audits were captured.
   for (const [presetName, rs] of byPreset) {
     const anyAudits = rs.some((r) => (r as { audits?: unknown[] }).audits?.length);
@@ -237,6 +257,108 @@ export function renderSwarmReport(
   );
 
   return sections.join('\n\n');
+}
+
+function renderWeightedVerdict(
+  byPreset: Map<string, RunResult[]>,
+  profile: { name: string; weights: Record<string, number> },
+): string {
+  // Compute per-preset p75 for the CWV metrics, weight them, render one summary line.
+  const metricSpecs: { key: keyof NonNullable<RunResult['metrics']>; label: string; unit: 'ms' | 'index'; good: number; poor: number }[] = [
+    { key: 'lcp', label: 'LCP', unit: 'ms', good: 2500, poor: 4000 },
+    { key: 'cls', label: 'CLS', unit: 'index', good: 0.1, poor: 0.25 },
+    { key: 'tbt', label: 'TBT', unit: 'ms', good: 200, poor: 600 },
+  ];
+  const usedWeights: { preset: string; weight: number }[] = [];
+  let totalWeight = 0;
+  for (const [name] of byPreset) {
+    const w = profile.weights[name];
+    if (typeof w === 'number' && w > 0) {
+      usedWeights.push({ preset: name, weight: w });
+      totalWeight += w;
+    }
+  }
+  if (usedWeights.length === 0) return '';
+  const parts: string[] = [];
+  for (const m of metricSpecs) {
+    let weightedSum = 0;
+    let weightAccum = 0;
+    for (const { preset, weight } of usedWeights) {
+      const rs = byPreset.get(preset);
+      if (!rs) continue;
+      const vals = rs.map((r) => r.metrics?.[m.key]).filter((v): v is number => typeof v === 'number');
+      const stats = computeStats(vals);
+      if (!stats) continue;
+      weightedSum += stats.p75 * weight;
+      weightAccum += weight;
+    }
+    if (weightAccum === 0) continue;
+    const wp75 = weightedSum / weightAccum;
+    const color = wp75 <= m.good ? chalk.green : wp75 <= m.poor ? chalk.yellow : chalk.red;
+    const display = m.unit === 'ms' ? (wp75 >= 1000 ? `${(wp75 / 1000).toFixed(2)}s` : `${Math.round(wp75)}ms`) : wp75.toFixed(3);
+    parts.push(`${chalk.dim(m.label)} ${color(display)}`);
+  }
+  const breakdown = usedWeights
+    .map(({ preset, weight }) => `${Math.round((weight / totalWeight) * 100)}% ${preset}`)
+    .join(' + ');
+  return (
+    chalk.cyan.bold(`Weighted verdict (${profile.name})`) +
+    chalk.dim('  · ') +
+    parts.join(chalk.dim('  ·  ')) +
+    '\n' +
+    chalk.dim(`  profile: ${breakdown}`)
+  );
+}
+
+function renderCrux(
+  byFormFactor?: { mobile?: CruxRecord | null; desktop?: CruxRecord | null },
+): string {
+  if (!byFormFactor) return '';
+  const have = (byFormFactor.mobile ?? undefined) || (byFormFactor.desktop ?? undefined);
+  if (!have) return '';
+  const lines: string[] = [];
+  lines.push(chalk.cyan.bold('Real users (CrUX p75)') + chalk.dim('  · 28-day field data from Chrome'));
+  const t = new Table({
+    head: [
+      chalk.bold('Form factor'),
+      chalk.bold('LCP'),
+      chalk.bold('CLS'),
+      chalk.bold('INP'),
+      chalk.bold('FCP'),
+      chalk.bold('TTFB'),
+    ],
+    style: { head: [], border: ['gray'] },
+  });
+  const formatMetric = (kind: 'ms' | 'index', spec: { good: number; poor: number }, v?: number): string => {
+    if (v === undefined) return chalk.dim('—');
+    const val = kind === 'ms' ? (v >= 1000 ? `${(v / 1000).toFixed(2)}s` : `${Math.round(v)}ms`) : v.toFixed(3);
+    const color = v <= spec.good ? chalk.green : v <= spec.poor ? chalk.yellow : chalk.red;
+    return color(val);
+  };
+  const row = (label: string, rec?: CruxRecord | null) => {
+    if (!rec) {
+      t.push([chalk.dim(label), '—', '—', '—', '—', '—']);
+      return;
+    }
+    t.push([
+      label,
+      formatMetric('ms', { good: 2500, poor: 4000 }, rec.metrics.lcp?.p75),
+      formatMetric('index', { good: 0.1, poor: 0.25 }, rec.metrics.cls?.p75),
+      formatMetric('ms', { good: 200, poor: 500 }, rec.metrics.inp?.p75),
+      formatMetric('ms', { good: 1800, poor: 3000 }, rec.metrics.fcp?.p75),
+      formatMetric('ms', { good: 800, poor: 1800 }, rec.metrics.ttfb?.p75),
+    ]);
+  };
+  row('mobile (PHONE)', byFormFactor.mobile);
+  row('desktop', byFormFactor.desktop);
+  lines.push(t.toString());
+  // Pick whichever record has a collectionPeriod for the dim hint.
+  const period = byFormFactor.mobile?.collectionPeriod ?? byFormFactor.desktop?.collectionPeriod;
+  const source = (byFormFactor.mobile ?? byFormFactor.desktop)?.source === 'url' ? 'URL-specific' : 'origin-aggregate';
+  if (period) {
+    lines.push(chalk.dim(`  · ${source} · ${period}`));
+  }
+  return lines.join('\n');
 }
 
 function renderOpportunities(d: Diagnosis): string {

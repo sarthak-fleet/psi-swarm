@@ -4,7 +4,8 @@ import chalk from 'chalk';
 import ora from 'ora';
 import boxen from 'boxen';
 import Table from 'cli-table3';
-import { PRESETS, PRESET_GROUPS, resolvePresets, type Preset } from './presets.js';
+import { PRESETS, PRESET_GROUPS, TRAFFIC_PROFILES, resolvePresets, type Preset } from './presets.js';
+import { fetchCrux, type CruxRecord } from './crux.js';
 import { SwarmRunner, type RunResult, type RunResultWithArtifact } from './runner.js';
 import { HistoryDB } from './db.js';
 import { renderSwarmReport } from './report.js';
@@ -43,6 +44,8 @@ program
   .option('--reason', 'Stream an LLM narrative explaining the numbers')
   .option('--reason-backend <name>', 'free-ai | local-ai | auto', 'auto')
   .option('--reason-model <id>', 'Override the model id', 'auto')
+  .option('--profile <name>', 'Traffic profile for the weighted verdict (mobile-heavy|desktop-heavy|balanced|mobile-only)')
+  .option('--no-crux', 'Skip the CrUX real-user p75 lookup')
   .action(async (url: string, opts) => {
     let presets: Preset[];
     try {
@@ -112,7 +115,29 @@ program
       db.close();
     }
 
-    console.log('\n' + renderSwarmReport(url, results, elapsed));
+    // Pre-render side-channel: fetch CrUX (mobile + desktop) in parallel.
+    let cruxByFormFactor: { mobile?: CruxRecord | null; desktop?: CruxRecord | null } | undefined;
+    if (opts.crux !== false && process.env.CRUX_API_KEY) {
+      try {
+        const [mobile, desktop] = await Promise.all([
+          fetchCrux(url, { formFactor: 'PHONE' }).catch(() => null),
+          fetchCrux(url, { formFactor: 'DESKTOP' }).catch(() => null),
+        ]);
+        if (mobile || desktop) cruxByFormFactor = { mobile, desktop };
+      } catch {
+        /* skip — report still renders without CrUX */
+      }
+    }
+    let trafficProfile: { name: string; weights: Record<string, number> } | undefined;
+    if (opts.profile) {
+      const weights = TRAFFIC_PROFILES[opts.profile];
+      if (!weights) {
+        console.error(chalk.red(`Unknown --profile: ${opts.profile}. Try: ${Object.keys(TRAFFIC_PROFILES).join(', ')}`));
+      } else {
+        trafficProfile = { name: opts.profile, weights };
+      }
+    }
+    console.log('\n' + renderSwarmReport(url, results, elapsed, { cruxByFormFactor, trafficProfile }));
 
     if (opts.reason === true) {
       await runReasoning(url, results, opts.reasonModel ?? 'auto', opts.reasonBackend ?? 'auto');
@@ -302,6 +327,20 @@ program
     }
     console.log('\n' + chalk.cyan.bold('Groups'));
     console.log(g.toString());
+
+    const p = new Table({
+      head: [chalk.bold('Traffic profile'), chalk.bold('Weights (sums to 100%)')],
+      style: { head: [], border: ['gray'] },
+    });
+    for (const [name, weights] of Object.entries(TRAFFIC_PROFILES)) {
+      const total = Object.values(weights).reduce((s, w) => s + w, 0);
+      const parts = Object.entries(weights)
+        .map(([k, v]) => `${Math.round((v / total) * 100)}% ${k}`)
+        .join(', ');
+      p.push([name, parts]);
+    }
+    console.log('\n' + chalk.cyan.bold('Traffic profiles (--profile)'));
+    console.log(p.toString());
   });
 
 program
