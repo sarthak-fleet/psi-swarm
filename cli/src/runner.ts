@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events';
 import { launch, type LaunchedChrome } from 'chrome-launcher';
 import lighthouse from 'lighthouse';
 import type { Preset } from './presets.js';
+import { captureAuditsFromLhr, type CapturedAudit } from './audits.js';
 
 export interface MetricSet {
   lcp?: number;
@@ -29,6 +30,7 @@ export interface ScriptArtifact {
 
 export interface RunResultWithArtifact extends RunResult {
   scripts?: ScriptArtifact[];
+  audits?: CapturedAudit[];
   finalUrl?: string;
 }
 
@@ -41,6 +43,7 @@ const CHROME_FLAGS = [
 
 interface RunOnceOptions {
   captureScripts?: boolean;
+  captureAudits?: boolean;
 }
 
 export async function runOnce(
@@ -110,6 +113,9 @@ export async function runOnce(
           .map((s) => ({ url: s.url!, content: s.content! }));
       }
     }
+    if (opts.captureAudits) {
+      out.audits = captureAuditsFromLhr(audits as Parameters<typeof captureAuditsFromLhr>[0]);
+    }
     return out;
   } catch (err) {
     return {
@@ -136,6 +142,7 @@ export interface SwarmOptions {
   runs: number;
   parallel?: number;
   captureScripts?: boolean;
+  captureAudits?: boolean;
 }
 
 export class SwarmRunner extends EventEmitter {
@@ -166,6 +173,7 @@ export class SwarmRunner extends EventEmitter {
         } satisfies RunnerEvent);
         const r = await runOnce(opts.url, preset, {
           captureScripts: opts.captureScripts && !scriptsCaptured,
+          captureAudits: opts.captureAudits,
         });
         if (r.scripts) scriptsCaptured = true;
         presetResults.push(r);

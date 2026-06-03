@@ -13,6 +13,8 @@ import { profileMachine, resolveParallelism } from './machine.js';
 import { renderProgress } from './ui.js';
 import { detectFrameworkRoutes } from './routes.js';
 import { createAgentServer } from './server.js';
+import { diagnosePreset, type Diagnosis } from './diagnose.js';
+import { streamReasoning } from './reason.js';
 
 const program = new Command();
 
@@ -37,6 +39,9 @@ program
   .option('--parallel <spec>', 'Preset-level parallelism (1|N|auto)', '1')
   .option('--no-save', 'Skip saving to local history db')
   .option('--no-suggest', 'Skip post-run link suggestions')
+  .option('--no-diagnose', 'Skip the "Why?" Lighthouse-audit opportunities section')
+  .option('--reason', 'Stream an LLM narrative explaining the numbers (needs FREE_AI_API_KEY)')
+  .option('--reason-model <id>', 'Override the gateway model id', 'auto')
   .action(async (url: string, opts) => {
     let presets: Preset[];
     try {
@@ -76,6 +81,7 @@ program
       runs,
       parallel,
       captureScripts: opts.suggest !== false,
+      captureAudits: opts.diagnose !== false || opts.reason === true,
     });
     const startedAt = Date.now();
     // Ink subscribes to runner events; it resolves when 'all-complete' fires.
@@ -107,10 +113,57 @@ program
 
     console.log('\n' + renderSwarmReport(url, results, elapsed));
 
+    if (opts.reason === true) {
+      await runReasoning(url, results, opts.reasonModel ?? 'auto');
+    }
+
     if (opts.suggest !== false) {
       await renderSuggestions(url, results);
     }
   });
+
+async function runReasoning(
+  url: string,
+  results: RunResultWithArtifact[],
+  model: string,
+): Promise<void> {
+  const byPreset = new Map<string, RunResultWithArtifact[]>();
+  for (const r of results) {
+    if (r.error) continue;
+    const arr = byPreset.get(r.preset.name) ?? [];
+    arr.push(r);
+    byPreset.set(r.preset.name, arr);
+  }
+  if (byPreset.size === 0) return;
+  const diagnoses: Diagnosis[] = [];
+  for (const [name, rs] of byPreset) {
+    diagnoses.push(diagnosePreset(url, name, rs, rs[0].preset.label, rs[0].preset.formFactor));
+  }
+  // Print a header, then stream the response.
+  console.log('\n' + chalk.cyan.bold('Reasoning') + chalk.dim(`  · model=${model}`));
+  process.stdout.write(chalk.dim('  '));
+  let firstChunk = true;
+  try {
+    const result = await streamReasoning(url, results, diagnoses, {
+      model,
+      onChunk: (chunk) => {
+        if (firstChunk) {
+          firstChunk = false;
+        }
+        // Soft wrap to ~84 chars with indent. cli-table3 width-aware wrap is overkill here.
+        process.stdout.write(chunk.replace(/\n/g, '\n  '));
+      },
+    });
+    process.stdout.write('\n');
+    if (result.modelUsed && result.modelUsed !== model) {
+      console.log(chalk.dim(`  · routed to ${result.modelUsed} (${(result.durationMs / 1000).toFixed(1)}s)`));
+    } else {
+      console.log(chalk.dim(`  · ${(result.durationMs / 1000).toFixed(1)}s`));
+    }
+  } catch (err) {
+    console.error('\n' + chalk.red(`Reasoning failed: ${(err as Error).message}`));
+  }
+}
 
 async function renderSuggestions(url: string, results: RunResultWithArtifact[]): Promise<void> {
   try {

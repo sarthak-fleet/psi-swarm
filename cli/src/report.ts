@@ -3,6 +3,7 @@ import Table from 'cli-table3';
 import boxen from 'boxen';
 import type { RunResult } from './runner.js';
 import { computeStats, type Stats } from './stats.js';
+import { diagnosePreset, rankOpportunities, formatAggregatedAudit, type Diagnosis } from './diagnose.js';
 
 type MetricKey =
   | 'lcp'
@@ -214,6 +215,14 @@ export function renderSwarmReport(
   const verdict = overallVerdict(okResults);
   if (verdict) sections.push(verdict);
 
+  // "Why?" — surface Lighthouse opportunities + LCP element if audits were captured.
+  for (const [presetName, rs] of byPreset) {
+    const anyAudits = rs.some((r) => (r as { audits?: unknown[] }).audits?.length);
+    if (!anyAudits) continue;
+    const diag = diagnosePreset(url, presetName, rs as never, rs[0].preset.label, rs[0].preset.formFactor);
+    sections.push(renderOpportunities(diag));
+  }
+
   sections.push(
     chalk.dim(
       [
@@ -228,4 +237,42 @@ export function renderSwarmReport(
   );
 
   return sections.join('\n\n');
+}
+
+function renderOpportunities(d: Diagnosis): string {
+  const lines: string[] = [];
+  lines.push(chalk.cyan.bold(`Why ${d.preset}?`) + chalk.dim(`  (n=${d.okRuns})`));
+  if (d.lcpElement) {
+    const el = d.lcpElement;
+    const head = el.nodeLabel ?? el.selector ?? '';
+    const snippet = el.snippet ?? '';
+    lines.push(chalk.dim('LCP element: ') + chalk.yellow(head || '(unknown)'));
+    if (snippet && snippet.length < 140) {
+      lines.push(chalk.dim('             ') + chalk.gray(snippet));
+    }
+  }
+  const ops = rankOpportunities(d, 8);
+  if (ops.length === 0) {
+    lines.push(chalk.dim('No actionable opportunities — Lighthouse marked all captured audits as passing.'));
+    return lines.join('\n');
+  }
+  const t = new Table({
+    head: [chalk.bold('Opportunity'), chalk.bold('Impact'), chalk.bold('Affects'), chalk.bold('Top item')],
+    style: { head: [], border: ['gray'] },
+    colWidths: [38, 18, 14, 50],
+    wordWrap: true,
+  });
+  for (const o of ops) {
+    const f = formatAggregatedAudit(o);
+    const topItem = f.topItems[0];
+    const itemCell = topItem
+      ? chalk.dim(topItem.label) + (topItem.detail ? chalk.gray(`  (${topItem.detail})`) : '')
+      : chalk.dim('—');
+    t.push([f.label, f.savings || f.display || '—', f.affects, itemCell]);
+  }
+  lines.push(t.toString());
+  if (d.consistencyNotes.length > 0) {
+    for (const n of d.consistencyNotes) lines.push(chalk.dim(`  · ${n}`));
+  }
+  return lines.join('\n');
 }
