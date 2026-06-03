@@ -388,20 +388,20 @@ export function createAgentServer(opts: ServeOptions): { listen: () => Promise<v
         }
         const backendParam = url.searchParams.get('backend') ?? 'auto';
         let backend: ReasonBackend;
-        if (backendParam === 'free-ai' || backendParam === 'local-ai') {
+        if (backendParam === 'openai' || backendParam === 'local-ai') {
           backend = backendParam;
         } else {
-          backend = (await probeLocalAi()) ? 'local-ai' : 'free-ai';
+          backend = (await probeLocalAi()) ? 'local-ai' : 'openai';
         }
-        if (backend === 'free-ai') {
-          const apiKey = process.env.FREE_AI_API_KEY ?? process.env.GATEWAY_API_KEY;
+        if (backend === 'openai') {
+          const apiKey = process.env.OPENAI_API_KEY;
           if (!apiKey) {
             return send(
               res,
               503,
               {
                 error:
-                  'FREE_AI_API_KEY not set on the agent and local-ai not reachable. Either start local-ai (github.com/sarthakagrawal927/local-ai) on :3456, or restart `psi-swarm serve` with FREE_AI_API_KEY=...',
+                  'OPENAI_API_KEY not set on the agent and local-ai not reachable. Either start local-ai (github.com/sarthakagrawal927/local-ai) on :3456, or restart `psi-swarm serve` with OPENAI_API_KEY=... (and optional OPENAI_BASE_URL).',
               },
               opts.origin,
             );

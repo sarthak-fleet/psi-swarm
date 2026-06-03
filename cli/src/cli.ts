@@ -42,7 +42,7 @@ program
   .option('--no-suggest', 'Skip post-run link suggestions')
   .option('--no-diagnose', 'Skip the "Why?" Lighthouse-audit opportunities section')
   .option('--reason', 'Stream an LLM narrative explaining the numbers')
-  .option('--reason-backend <name>', 'free-ai | local-ai | auto', 'auto')
+  .option('--reason-backend <name>', 'openai | local-ai | auto (OpenAI-compatible endpoint, or local-ai CLI wrapper)', 'auto')
   .option('--reason-model <id>', 'Override the model id', 'auto')
   .option('--profile <name>', 'Traffic profile for the weighted verdict (mobile-heavy|desktop-heavy|balanced|mobile-only)')
   .option('--no-crux', 'Skip the CrUX real-user p75 lookup')
@@ -149,10 +149,10 @@ program
   });
 
 async function resolveBackend(spec: string): Promise<ReasonBackend> {
-  if (spec === 'free-ai' || spec === 'local-ai') return spec;
+  if (spec === 'openai' || spec === 'local-ai') return spec;
   // auto: prefer local-ai if reachable.
   const local = await probeLocalAi();
-  return local ? 'local-ai' : 'free-ai';
+  return local ? 'local-ai' : 'openai';
 }
 
 async function runReasoning(

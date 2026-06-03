@@ -68,15 +68,18 @@ After every swarm, psi-swarm can stream an LLM-generated explanation grounded in
 # Local — uses your already-authenticated Claude / Codex / Gemini CLI via local-ai
 npm run cli -- run https://example.com --reason --reason-backend local-ai
 
-# Cloud — Cloudflare Workers gateway, OpenAI-compatible
-export FREE_AI_API_KEY=<your key>
-npm run cli -- run https://example.com --reason --reason-backend free-ai
+# Any OpenAI-compatible endpoint — OpenAI, OpenRouter, Groq, your own gateway, etc.
+export OPENAI_API_KEY=<your key>
+export OPENAI_BASE_URL=<base url including /v1>   # optional, defaults to https://api.openai.com/v1
+npm run cli -- run https://example.com --reason --reason-backend openai
 
-# Auto (default) — probes local-ai first, falls back to free-ai if available
+# Auto (default) — probes local-ai first, falls back to the OpenAI-compatible backend
 npm run cli -- run https://example.com --reason
 ```
 
-**For the zero-config local path**, also clone and run [local-ai](https://github.com/sarthakagrawal927/local-ai) on `:3456` — it wraps whichever LLM CLI you're already logged into. No API key needed anywhere.
+**For the zero-config local path**, also clone and run [local-ai](https://github.com/sarthakagrawal927/local-ai) on `:3456` — it wraps whichever LLM CLI you're already logged into (Claude, Codex, Gemini). No API key needed anywhere.
+
+**For the cloud path**, `OPENAI_BASE_URL` lets you point at whatever provider you want: official OpenAI, OpenRouter, Groq, Together, a self-hosted vLLM/Ollama, or your own gateway. As long as it implements `POST /chat/completions` with the standard request/response shape, it works.
 
 See [`cli/README.md`](./cli/README.md) for every command and option.
 

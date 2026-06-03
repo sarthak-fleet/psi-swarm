@@ -99,8 +99,8 @@ export default function RunDashboard() {
   const [reasonText, setReasonText] = useState<string>('');
   const [reasonStatus, setReasonStatus] = useState<'idle' | 'streaming' | 'done' | 'error'>('idle');
   const [reasonModel, setReasonModel] = useState<string | undefined>();
-  const [reasonBackendUsed, setReasonBackendUsed] = useState<'free-ai' | 'local-ai' | undefined>();
-  const [reasonBackendPref, setReasonBackendPref] = useState<'auto' | 'free-ai' | 'local-ai'>('auto');
+  const [reasonBackendUsed, setReasonBackendUsed] = useState<'openai' | 'local-ai' | undefined>();
+  const [reasonBackendPref, setReasonBackendPref] = useState<'auto' | 'openai' | 'local-ai'>('auto');
   const [reasonError, setReasonError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -630,9 +630,9 @@ interface WhyPanelProps {
   reasonStatus: 'idle' | 'streaming' | 'done' | 'error';
   reasonText: string;
   reasonModel?: string;
-  reasonBackendUsed?: 'free-ai' | 'local-ai';
-  reasonBackendPref: 'auto' | 'free-ai' | 'local-ai';
-  setReasonBackendPref: (b: 'auto' | 'free-ai' | 'local-ai') => void;
+  reasonBackendUsed?: 'openai' | 'local-ai';
+  reasonBackendPref: 'auto' | 'openai' | 'local-ai';
+  setReasonBackendPref: (b: 'auto' | 'openai' | 'local-ai') => void;
   reasonError: string | null;
   onAskReason: () => void;
 }
@@ -648,13 +648,13 @@ function WhyPanel({ diagnosis, reasonStatus, reasonText, reasonModel, reasonBack
             <>
               <select
                 value={reasonBackendPref}
-                onChange={(e) => setReasonBackendPref(e.target.value as 'auto' | 'free-ai' | 'local-ai')}
+                onChange={(e) => setReasonBackendPref(e.target.value as 'auto' | 'openai' | 'local-ai')}
                 className="text-xs bg-[var(--color-bg)] border border-[var(--color-border)] rounded px-2 py-1 text-[var(--color-dim)] focus:outline-none focus:border-[var(--color-cyan)]"
                 title="LLM backend"
               >
                 <option value="auto">backend: auto</option>
                 <option value="local-ai">local-ai (Claude CLI)</option>
-                <option value="free-ai">free-ai gateway</option>
+                <option value="openai">OpenAI-compatible</option>
               </select>
               <button
                 onClick={onAskReason}

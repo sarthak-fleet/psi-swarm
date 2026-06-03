@@ -70,18 +70,32 @@ Groups: `realistic` (all four), `mobile`, `desktop`, `psi` (matches Google PSI's
 After the percentile tables, psi-swarm can stream an LLM-generated **explanation** of why your numbers are what they are. Two backends:
 
 ```bash
-# Auto: tries local-ai first, falls back to free-ai gateway
+# Auto: tries local-ai first, falls back to the OpenAI-compatible endpoint
 node dist/cli.js run https://example.com --runs 3 --reason
 
 # Explicit
 node dist/cli.js run https://example.com --reason --reason-backend local-ai
-node dist/cli.js run https://example.com --reason --reason-backend free-ai
+node dist/cli.js run https://example.com --reason --reason-backend openai
 ```
 
-| Backend | Where it runs | Auth | Setup |
-| ------- | ------------- | ---- | ----- |
-| **local-ai** ([github.com/sarthakagrawal927/local-ai](https://github.com/sarthakagrawal927/local-ai)) | Your machine — wraps your already-authenticated Claude / Codex / Gemini CLI | None | `git clone … && npm install && npm start` (port 3456) |
-| **free-ai** ([github.com/sarthakagrawal927/free-ai](https://github.com/sarthakagrawal927/free-ai)) | Cloudflare Workers, OpenAI-compatible API | `FREE_AI_API_KEY` env var | `export FREE_AI_API_KEY=...` |
+| Backend | Where it runs | Auth |
+| ------- | ------------- | ---- |
+| **local-ai** | Your machine — wraps your already-authenticated Claude / Codex / Gemini CLI (see [github.com/sarthakagrawal927/local-ai](https://github.com/sarthakagrawal927/local-ai), port 3456) | None |
+| **openai** | Any OpenAI-compatible Chat Completions endpoint — OpenAI, OpenRouter, Groq, Together, self-hosted vLLM/Ollama, your own gateway | `OPENAI_API_KEY` (+ optional `OPENAI_BASE_URL`) |
+
+**Configuring the OpenAI backend:**
+
+```bash
+export OPENAI_API_KEY=<your key>
+# Optional — default is https://api.openai.com/v1
+export OPENAI_BASE_URL=https://openrouter.ai/api/v1
+# Optional — default is gpt-4o-mini
+export OPENAI_MODEL=anthropic/claude-3.5-sonnet
+# Optional — JSON merged into request body (for gateways that want project IDs, etc.)
+export OPENAI_EXTRA_BODY='{"project_id":"psi-swarm"}'
+```
+
+Any provider that implements the OpenAI Chat Completions request/response shape and SSE streaming format works. That includes OpenAI, OpenRouter, Groq, DeepInfra, Together, Anyscale, vLLM, Ollama (`/v1/chat/completions`), LM Studio, and any custom gateway.
 
 The LLM gets a compacted summary of the Lighthouse audit data (ranked opportunities + LCP element + LCP phase breakdown — TTFB / Load Delay / Load Time / Render Delay), so its output cites specific files, byte counts, and percentages. Not generic advice.
 

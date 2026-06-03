@@ -135,7 +135,7 @@ export class AgentClient {
   subscribeReason(
     runId: string,
     onEvent: (e: ReasonEvent) => void,
-    opts: { model?: string; backend?: 'free-ai' | 'local-ai' | 'auto' } = {},
+    opts: { model?: string; backend?: 'openai' | 'local-ai' | 'auto' } = {},
   ): () => void {
     const params = new URLSearchParams();
     if (opts.model) params.set('model', opts.model);
@@ -177,7 +177,7 @@ export interface DiagnosisResponse {
 }
 
 export type ReasonEvent =
-  | { type: 'backend'; backend: 'free-ai' | 'local-ai' }
+  | { type: 'backend'; backend: 'openai' | 'local-ai' }
   | { type: 'chunk'; text: string }
   | { type: 'done'; modelUsed?: string; durationMs: number }
   | { type: 'error'; message: string };

@@ -2,11 +2,10 @@ import { computeStats } from './stats.js';
 import type { Diagnosis } from './diagnose.js';
 import type { RunResultWithArtifact, MetricSet } from './runner.js';
 
-const DEFAULT_GATEWAY = 'https://free-ai-gateway.sarthakagrawal927.workers.dev';
-const DEFAULT_PROJECT = 'psi-swarm';
+const DEFAULT_OPENAI_BASE = 'https://api.openai.com/v1';
 const DEFAULT_LOCAL_AI = 'http://localhost:3456';
 
-export type ReasonBackend = 'free-ai' | 'local-ai';
+export type ReasonBackend = 'openai' | 'local-ai';
 
 const SYSTEM_PROMPT = `You are analysing Lighthouse-derived performance data for a webpage. The data comes from N repeated Lighthouse runs against the same URL under controlled lab conditions (emulated network and CPU). Your job is to explain WHY the metrics are what they are and what specific changes would most improve them.
 
@@ -30,10 +29,13 @@ Order: (1) what's bad in one sentence, (2) the most likely cause grounded in the
 export interface ReasonOptions {
   backend?: ReasonBackend;
   model?: string;
-  // free-ai
-  gatewayUrl?: string;
-  projectId?: string;
+  // openai-compatible — works with OpenAI, OpenRouter, Groq, free-ai, etc.
+  baseUrl?: string;
   apiKey?: string;
+  /** Optional extra body fields (e.g. { project_id: "..." } for gateways that want it). */
+  extraBody?: Record<string, unknown>;
+  /** Optional extra headers. */
+  extraHeaders?: Record<string, string>;
   // local-ai
   localAiUrl?: string;
   localAiProvider?: 'claude' | 'codex' | 'gemini';
@@ -121,8 +123,10 @@ export interface ReasonResult {
 }
 
 /**
- * Stream a reasoning response. Defaults to local-ai if it's reachable,
- * falls back to free-ai gateway. Explicit `backend` opt overrides.
+ * Stream a reasoning response. Explicit `backend` opt overrides.
+ * - `openai` works with any OpenAI-compatible Chat Completions endpoint
+ *   (OpenAI, OpenRouter, Groq, your own gateway, etc.).
+ * - `local-ai` wraps a locally-running CLI (Claude / Codex / Gemini).
  */
 export async function streamReasoning(
   url: string,
@@ -130,51 +134,63 @@ export async function streamReasoning(
   diagnoses: Diagnosis[],
   opts: ReasonOptions = {},
 ): Promise<ReasonResult> {
-  const backend: ReasonBackend = opts.backend ?? 'free-ai';
+  const backend: ReasonBackend = opts.backend ?? 'openai';
   const payload = buildReasoningPayload(url, results, diagnoses);
   const userMessage = `Analyse this swarm. URL = ${url}\n\nData (JSON):\n${JSON.stringify(payload, null, 2)}`;
   const startedAt = Date.now();
   if (backend === 'local-ai') {
     return streamLocalAi(userMessage, opts, startedAt);
   }
-  return streamFreeAi(userMessage, opts, startedAt);
+  return streamOpenAi(userMessage, opts, startedAt);
 }
 
-async function streamFreeAi(userMessage: string, opts: ReasonOptions, startedAt: number): Promise<ReasonResult> {
-  const apiKey = opts.apiKey ?? process.env.FREE_AI_API_KEY ?? process.env.GATEWAY_API_KEY;
+function parseExtraJson(raw: string | undefined): Record<string, unknown> | undefined {
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    return typeof parsed === 'object' && parsed !== null ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function streamOpenAi(userMessage: string, opts: ReasonOptions, startedAt: number): Promise<ReasonResult> {
+  const apiKey = opts.apiKey ?? process.env.OPENAI_API_KEY;
   if (!apiKey) {
     throw new Error(
-      'Missing FREE_AI_API_KEY env var. Set it to a key issued by the free-ai gateway operator, or use --reason-backend local-ai.',
+      'Missing OPENAI_API_KEY env var. Set it to a key from any OpenAI-compatible provider (OpenAI, OpenRouter, Groq, your own gateway). Or use --reason-backend local-ai.',
     );
   }
-  const gateway = opts.gatewayUrl ?? process.env.FREE_AI_GATEWAY_URL ?? DEFAULT_GATEWAY;
-  const projectId = opts.projectId ?? process.env.FREE_AI_PROJECT_ID ?? DEFAULT_PROJECT;
-  const model = opts.model ?? 'auto';
+  // Base URL convention: include /v1, e.g. https://api.openai.com/v1
+  const baseUrl = (opts.baseUrl ?? process.env.OPENAI_BASE_URL ?? DEFAULT_OPENAI_BASE).replace(/\/$/, '');
+  const model = opts.model ?? process.env.OPENAI_MODEL ?? 'gpt-4o-mini';
+  const extraBody = { ...parseExtraJson(process.env.OPENAI_EXTRA_BODY), ...(opts.extraBody ?? {}) };
+  const extraHeaders = { ...parseExtraJson(process.env.OPENAI_EXTRA_HEADERS), ...(opts.extraHeaders ?? {}) } as Record<string, string>;
 
   const body = JSON.stringify({
     model,
-    project_id: projectId,
     stream: true,
     messages: [
       { role: 'system', content: SYSTEM_PROMPT },
       { role: 'user', content: userMessage },
     ],
+    ...extraBody,
   });
 
-  const res = await fetch(`${gateway}/v1/chat/completions`, {
+  const res = await fetch(`${baseUrl}/chat/completions`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${apiKey}`,
-      'X-Gateway-Project-Id': projectId,
+      ...extraHeaders,
     },
     body,
   });
   if (!res.ok) {
     const txt = await res.text();
-    throw new Error(`free-ai gateway HTTP ${res.status}: ${txt.slice(0, 400)}`);
+    throw new Error(`OpenAI-compatible endpoint at ${baseUrl} returned HTTP ${res.status}: ${txt.slice(0, 400)}`);
   }
-  if (!res.body) throw new Error('gateway returned no body');
+  if (!res.body) throw new Error('endpoint returned no body');
 
   let acc = '';
   let modelUsed: string | undefined;
