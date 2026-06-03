@@ -35,34 +35,50 @@ psi-swarm/
                     Talks to the CLI's `serve` agent via CORS
 ```
 
-## Quick start — CLI only
+## Quick start (3 commands)
 
 ```bash
 git clone https://github.com/sarthakagrawal927/psi-swarm.git
-cd psi-swarm/cli
-npm install
-npm run build
-node dist/cli.js run https://example.com --runs 10 --parallel auto
+cd psi-swarm
+npm run setup                                                # installs + builds CLI
+npm run cli -- run https://example.com --runs 5 --parallel auto
 ```
 
-See [`cli/README.md`](./cli/README.md) for the full command reference.
+That's it. Beautiful Ink-driven progress UI in the terminal, percentile tables, LCP element identification, and ranked Lighthouse opportunities.
 
-## Quick start — Web UI
+> **Node version**: use Node 22 LTS. Lighthouse 12 has a known incompatibility with Node 24 (an internal `performance.measure` trace mark). The `engines` field gates this.
+
+### Web UI flavour
+
+Same CLI, but driven from a browser:
 
 ```bash
-# Terminal 1 — start the local compute agent
-cd psi-swarm/cli
-npm install && npm run build
-node dist/cli.js serve --origin http://localhost:4321
-
-# Terminal 2 — start the web UI
-cd psi-swarm/web
-npm install
-npm run dev
+npm run serve                  # in one terminal: starts the local agent
+npm run web                    # in another terminal: starts the Astro dev server
 # → open http://localhost:4321
 ```
 
-The UI auto-detects the local agent. If it's not running, you get install instructions instead of a broken page.
+The browser auto-detects the local agent. **Compute always happens on your machine** — the page is just the controller.
+
+### Reasoning about *why* your numbers are what they are
+
+After every swarm, psi-swarm can stream an LLM-generated explanation grounded in the actual audit data — which `<img>` is the LCP, what % of LCP is render delay vs load time, the top 3 opportunities ranked by savings. Two backends, your choice:
+
+```bash
+# Local — uses your already-authenticated Claude / Codex / Gemini CLI via local-ai
+npm run cli -- run https://example.com --reason --reason-backend local-ai
+
+# Cloud — Cloudflare Workers gateway, OpenAI-compatible
+export FREE_AI_API_KEY=<your key>
+npm run cli -- run https://example.com --reason --reason-backend free-ai
+
+# Auto (default) — probes local-ai first, falls back to free-ai if available
+npm run cli -- run https://example.com --reason
+```
+
+**For the zero-config local path**, also clone and run [local-ai](https://github.com/sarthakagrawal927/local-ai) on `:3456` — it wraps whichever LLM CLI you're already logged into. No API key needed anywhere.
+
+See [`cli/README.md`](./cli/README.md) for every command and option.
 
 ## What's different from PageSpeed Insights / Lighthouse alone
 

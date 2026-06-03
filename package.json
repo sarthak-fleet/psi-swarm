@@ -8,10 +8,18 @@
     "web"
   ],
   "scripts": {
+    "setup": "npm install && npm --workspace cli run build",
+    "cli": "node cli/dist/cli.js",
+    "run": "node cli/dist/cli.js run",
+    "serve": "node cli/dist/cli.js serve",
+    "web": "npm --workspace web run dev",
     "build:cli": "npm --workspace cli run build",
-    "dev:cli": "npm --workspace cli run dev",
-    "dev:web": "npm --workspace web run dev",
-    "build:web": "npm --workspace web run build"
+    "build:web": "npm --workspace web run build",
+    "dev:cli": "npm --workspace cli run dev"
+  },
+  "engines": {
+    "node": ">=20 <24",
+    "comment": "Lighthouse 12 has a known incompatibility with Node 24 (TraceEngineResult performance mark). Use Node 22 LTS."
   },
   "repository": {
     "type": "git",
