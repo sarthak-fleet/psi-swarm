@@ -36,12 +36,16 @@ export function createDomainRatingScheduler(deps: DomainRatingSchedulerDeps): {
       if (eligible.length === 0) return false;
 
       refreshInProgress = true;
-      const ratings = await fetchDomainRatings(
+      const { ratings, resolved } = await fetchDomainRatings(
         eligible.map((d) => `https://${d}/`),
         { concurrency: 3, force: true, db },
       );
       const refreshedAt = Date.now();
-      db.setMeta(META_LAST_REFRESH, String(refreshedAt));
+      // Only stamp when at least one lookup landed (rating or no-rating sentinel);
+      // otherwise a fully-failed pass would suppress retries for a whole TTL.
+      if (resolved > 0) {
+        db.setMeta(META_LAST_REFRESH, String(refreshedAt));
+      }
       deps.onRefresh?.({ domains: ratings.size, refreshedAt });
       return true;
     } catch (err) {
@@ -67,6 +71,8 @@ export function createDomainRatingScheduler(deps: DomainRatingSchedulerDeps): {
         const eligible = origins
           .map((o) => hostnameFromUrl(o))
           .filter((d): d is string => !!d && shouldFetchDomainRating(`https://${d}/`));
+        // stored includes no-rating sentinel rows (rating null) — a fresh sentinel
+        // counts as "checked", so unrated domains aren't refetched every probe.
         const stored = db.domainRatings();
         due = eligible.some((domain) => {
           const hit = stored.get(domain.toLowerCase());

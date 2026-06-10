@@ -78,7 +78,7 @@ export class HistoryDB {
 
       CREATE TABLE IF NOT EXISTS domain_ratings (
         domain TEXT PRIMARY KEY,
-        rating REAL NOT NULL,
+        rating REAL,
         fetched_at INTEGER NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_domain_ratings_fetched_at ON domain_ratings(fetched_at);
@@ -87,6 +87,31 @@ export class HistoryDB {
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL
       );
+    `);
+    this.migrateDomainRatingsNullable();
+  }
+
+  /**
+   * Older DBs created domain_ratings with `rating REAL NOT NULL`. Rating must be
+   * nullable so a NULL row can negative-cache "Ahrefs has no rating for this domain".
+   */
+  private migrateDomainRatingsNullable() {
+    const cols = this.db.pragma('table_info(domain_ratings)') as Array<{ name: string; notnull: number }>;
+    const ratingCol = cols.find((c) => c.name === 'rating');
+    if (!ratingCol || ratingCol.notnull === 0) return;
+    this.db.exec(`
+      BEGIN;
+      ALTER TABLE domain_ratings RENAME TO domain_ratings_old;
+      CREATE TABLE domain_ratings (
+        domain TEXT PRIMARY KEY,
+        rating REAL,
+        fetched_at INTEGER NOT NULL
+      );
+      INSERT INTO domain_ratings (domain, rating, fetched_at)
+        SELECT domain, rating, fetched_at FROM domain_ratings_old;
+      DROP TABLE domain_ratings_old;
+      CREATE INDEX IF NOT EXISTS idx_domain_ratings_fetched_at ON domain_ratings(fetched_at);
+      COMMIT;
     `);
   }
 
@@ -101,23 +126,24 @@ export class HistoryDB {
       .run(key, value);
   }
 
-  getDomainRating(domain: string): { domain: string; rating: number; fetchedAt: number } | null {
+  /** rating === null is a negative-cache sentinel: Ahrefs reported no rating. */
+  getDomainRating(domain: string): { domain: string; rating: number | null; fetchedAt: number } | null {
     const row = this.db
       .prepare(`SELECT domain, rating, fetched_at as fetchedAt FROM domain_ratings WHERE domain = ?`)
-      .get(domain.toLowerCase()) as { domain: string; rating: number; fetchedAt: number } | undefined;
+      .get(domain.toLowerCase()) as { domain: string; rating: number | null; fetchedAt: number } | undefined;
     return row ?? null;
   }
 
-  domainRatings(): Map<string, { domain: string; rating: number; fetchedAt: number }> {
+  domainRatings(): Map<string, { domain: string; rating: number | null; fetchedAt: number }> {
     const rows = this.db
       .prepare(`SELECT domain, rating, fetched_at as fetchedAt FROM domain_ratings`)
-      .all() as Array<{ domain: string; rating: number; fetchedAt: number }>;
-    const out = new Map<string, { domain: string; rating: number; fetchedAt: number }>();
+      .all() as Array<{ domain: string; rating: number | null; fetchedAt: number }>;
+    const out = new Map<string, { domain: string; rating: number | null; fetchedAt: number }>();
     for (const row of rows) out.set(row.domain.toLowerCase(), row);
     return out;
   }
 
-  upsertDomainRating(entry: { domain: string; rating: number; fetchedAt: number }): void {
+  upsertDomainRating(entry: { domain: string; rating: number | null; fetchedAt: number }): void {
     this.db
       .prepare(
         `INSERT INTO domain_ratings (domain, rating, fetched_at)

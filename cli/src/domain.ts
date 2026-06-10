@@ -2,10 +2,13 @@ const CF_PLATFORM_SUFFIXES = ['.pages.dev', '.workers.dev'] as const;
 
 const SKIP_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 
-/** Hostnames on Cloudflare's shared platform domains (not a site's own domain). */
+/**
+ * Hostnames on Cloudflare's shared platform domains (not a site's own domain).
+ * Strictly *.pages.dev / *.workers.dev — localhost/IP exclusion is handled
+ * separately by shouldFetchDomainRating.
+ */
 export function isCloudflarePlatformHost(hostname: string): boolean {
   const host = hostname.toLowerCase().replace(/\.$/, '');
-  if (SKIP_HOSTS.has(host)) return true;
   return CF_PLATFORM_SUFFIXES.some((suffix) => host.endsWith(suffix));
 }
 

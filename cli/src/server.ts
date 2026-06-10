@@ -425,64 +425,69 @@ export function createAgentServer(opts: ServeOptions): { listen: () => Promise<v
       if (req.method === 'GET' && url.pathname === '/api/projects') {
         const windowDays = parseInt(url.searchParams.get('windowDays') ?? '30', 10);
         const db = new HistoryDB();
-        const rows = db.projects(windowDays);
-        // Group URL-level rows by URL origin so multiple pages of the same site
-        // collapse under one "project" card. The path is derived for display.
-        type Page = (typeof rows)[number] & { path: string };
-        const byOrigin = new Map<string, Page[]>();
-        for (const r of rows) {
-          let origin: string;
-          let path: string;
-          try {
-            const u = new URL(r.url);
-            origin = u.origin;
-            path = (u.pathname || '/') + (u.search || '');
-          } catch {
-            origin = r.url;
-            path = '/';
+        try {
+          const rows = db.projects(windowDays);
+          // Group URL-level rows by URL origin so multiple pages of the same site
+          // collapse under one "project" card. The path is derived for display.
+          type Page = (typeof rows)[number] & { path: string };
+          const byOrigin = new Map<string, Page[]>();
+          for (const r of rows) {
+            let origin: string;
+            let path: string;
+            try {
+              const u = new URL(r.url);
+              origin = u.origin;
+              path = (u.pathname || '/') + (u.search || '');
+            } catch {
+              origin = r.url;
+              path = '/';
+            }
+            const arr = byOrigin.get(origin) ?? [];
+            arr.push({ ...r, path });
+            byOrigin.set(origin, arr);
           }
-          const arr = byOrigin.get(origin) ?? [];
-          arr.push({ ...r, path });
-          byOrigin.set(origin, arr);
-        }
-        const registry = getReportRegistry();
-        const origins = Array.from(byOrigin.keys());
-        const dbRatings = domainRatingsForOrigins(origins, db);
-        const projects = Array.from(byOrigin.entries()).map(([origin, pages]) => {
-          // Attach per-page report info from the registry.
-          const enrichedPages = pages.map((p) => {
-            const entries = registry.get(p.url) ?? [];
+          const registry = getReportRegistry();
+          const origins = Array.from(byOrigin.keys());
+          const dbRatings = domainRatingsForOrigins(origins, db);
+          const projects = Array.from(byOrigin.entries()).map(([origin, pages]) => {
+            // Attach per-page report info from the registry.
+            const enrichedPages = pages.map((p) => {
+              const entries = registry.get(p.url) ?? [];
+              return {
+                ...p,
+                reportCount: entries.length,
+                latestReportAt: entries[0]?.mtime,
+              };
+            }).sort((a, b) => a.path.localeCompare(b.path));
+            const totalRuns = enrichedPages.reduce((s, p) => s + p.totalRuns, 0);
+            const lastRunAt = enrichedPages.reduce((s, p) => Math.max(s, p.lastRunAt), 0);
+            const allMobile = enrichedPages.map((p) => p.mobileLcpP75).filter((v): v is number => typeof v === 'number');
+            const allDesktop = enrichedPages.map((p) => p.desktopLcpP75).filter((v): v is number => typeof v === 'number');
+            const allCls = enrichedPages.map((p) => p.cls).filter((v): v is number => typeof v === 'number');
+            const host = hostnameFromUrl(origin);
+            const cfPlatform = host ? isCloudflarePlatformHost(host) : false;
+            const dr = host ? dbRatings.get(host) : undefined;
             return {
-              ...p,
-              reportCount: entries.length,
-              latestReportAt: entries[0]?.mtime,
+              origin,
+              totalRuns,
+              lastRunAt,
+              pageCount: enrichedPages.length,
+              worstMobileLcp: allMobile.length > 0 ? Math.max(...allMobile) : undefined,
+              worstDesktopLcp: allDesktop.length > 0 ? Math.max(...allDesktop) : undefined,
+              worstCls: allCls.length > 0 ? Math.max(...allCls) : undefined,
+              isCloudflarePlatform: cfPlatform,
+              // dr.rating === null is the "checked, Ahrefs has no rating" sentinel —
+              // expose no rating, but keep fetchedAt so the UI can show '—' vs pending.
+              domainRating: dr?.rating ?? undefined,
+              domainRatingDomain: dr?.domain,
+              domainRatingFetchedAt: dr?.fetchedAt,
+              pages: enrichedPages,
             };
-          }).sort((a, b) => a.path.localeCompare(b.path));
-          const totalRuns = enrichedPages.reduce((s, p) => s + p.totalRuns, 0);
-          const lastRunAt = enrichedPages.reduce((s, p) => Math.max(s, p.lastRunAt), 0);
-          const allMobile = enrichedPages.map((p) => p.mobileLcpP75).filter((v): v is number => typeof v === 'number');
-          const allDesktop = enrichedPages.map((p) => p.desktopLcpP75).filter((v): v is number => typeof v === 'number');
-          const allCls = enrichedPages.map((p) => p.cls).filter((v): v is number => typeof v === 'number');
-          const host = hostnameFromUrl(origin);
-          const cfPlatform = host ? isCloudflarePlatformHost(host) : false;
-          const dr = host ? dbRatings.get(host) : undefined;
-          return {
-            origin,
-            totalRuns,
-            lastRunAt,
-            pageCount: enrichedPages.length,
-            worstMobileLcp: allMobile.length > 0 ? Math.max(...allMobile) : undefined,
-            worstDesktopLcp: allDesktop.length > 0 ? Math.max(...allDesktop) : undefined,
-            worstCls: allCls.length > 0 ? Math.max(...allCls) : undefined,
-            isCloudflarePlatform: cfPlatform,
-            domainRating: dr?.rating,
-            domainRatingDomain: dr?.domain,
-            domainRatingFetchedAt: dr?.fetchedAt,
-            pages: enrichedPages,
-          };
-        }).sort((a, b) => b.lastRunAt - a.lastRunAt);
-        db.close();
-        return send(res, 200, { projects }, opts.origin);
+          }).sort((a, b) => b.lastRunAt - a.lastRunAt);
+          return send(res, 200, { projects }, opts.origin);
+        } finally {
+          db.close();
+        }
       }
 
       // GET /api/report?url=<url>&which=latest — serve the latest HTML report

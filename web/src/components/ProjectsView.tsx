@@ -23,6 +23,8 @@ interface ProjectGrouped {
   isCloudflarePlatform?: boolean;
   domainRating?: number;
   domainRatingDomain?: string;
+  /** Set whenever the domain was checked — even when Ahrefs has no rating. */
+  domainRatingFetchedAt?: number;
   pages: PageRow[];
 }
 interface HistoryRow {
@@ -306,7 +308,7 @@ function ProjectCard({ proj, expanded, onToggle, expandedPages, onTogglePage, hi
             {proj.isCloudflarePlatform && <span> · CF platform</span>}
           </div>
         </div>
-        <DrCell value={proj.domainRating} cfPlatform={proj.isCloudflarePlatform} />
+        <DrCell value={proj.domainRating} cfPlatform={proj.isCloudflarePlatform} checked={proj.domainRatingFetchedAt !== undefined} />
         <Worst label="worst desktop" value={proj.worstDesktopLcp} />
         <Worst label="worst mobile" value={proj.worstMobileLcp} />
         <ClsCell value={proj.worstCls} />
@@ -343,12 +345,13 @@ function ClsCell({ value }: { value: number | undefined }) {
     </div>
   );
 }
-function DrCell({ value, cfPlatform }: { value: number | undefined; cfPlatform?: boolean }) {
+function DrCell({ value, cfPlatform, checked }: { value: number | undefined; cfPlatform?: boolean; checked?: boolean }) {
+  // '…' only while a first lookup is pending; once checked (or ineligible) show '—'.
   return (
     <div>
       <div className="text-xs text-[var(--color-dim)] uppercase tracking-wide">Ahrefs DR</div>
       <div className="font-mono text-sm" style={{ color: tierColor[drTier(value)] }}>
-        {typeof value === 'number' ? value.toFixed(1) : cfPlatform ? '—' : '…'}
+        {typeof value === 'number' ? value.toFixed(1) : cfPlatform || checked ? '—' : '…'}
       </div>
     </div>
   );
@@ -363,7 +366,7 @@ function PageRowComp({ pg, expanded, onToggle, history, running, onRun }: { pg: 
   const mobileTs = mobileRuns.map((r) => r.started_at);
   return (
     <>
-      <div className="px-5 py-2.5 grid grid-cols-[1fr_140px_140px_140px_auto] gap-4 items-center border-t border-[var(--color-border)] first:border-t-0">
+      <div className="px-5 py-2.5 grid grid-cols-[1fr_100px_140px_140px_140px_auto] gap-4 items-center border-t border-[var(--color-border)] first:border-t-0">
         <div>
           <button onClick={onToggle} className="text-sm font-mono text-left hover:text-[var(--color-cyan)] transition flex items-center gap-2">
             <span className="text-xs text-[var(--color-dim)]">{expanded ? '▼' : '▶'}</span>
@@ -371,6 +374,8 @@ function PageRowComp({ pg, expanded, onToggle, history, running, onRun }: { pg: 
           </button>
           <div className="text-xs text-[var(--color-dim)] mt-0.5">n={pg.totalRuns} · last {fmtRelative(pg.lastRunAt)}</div>
         </div>
+        {/* Empty cell — DR is per-project, keeps page rows aligned with the card header grid. */}
+        <div />
         <PageMetric label="desktop LCP" value={pg.desktopLcpP75} lcps={desktopLcps} timestamps={desktopTs} />
         <PageMetric label="mobile LCP" value={pg.mobileLcpP75} lcps={mobileLcps} timestamps={mobileTs} />
         <div className="text-right">
