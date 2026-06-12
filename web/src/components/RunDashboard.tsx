@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AgentClient,
   probeAgent,
@@ -103,6 +103,7 @@ export default function RunDashboard() {
   const [reasonBackendPref, setReasonBackendPref] = useState<'auto' | 'openai' | 'local-ai'>('auto');
   const [reasonError, setReasonError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const runUnsubRef = useRef<(() => void) | null>(null);
 
   // Probe for the local agent on mount.
   useEffect(() => {
@@ -126,6 +127,13 @@ export default function RunDashboard() {
     })();
   }, []);
 
+  useEffect(() => {
+    return () => {
+      runUnsubRef.current?.();
+      runUnsubRef.current = null;
+    };
+  }, []);
+
   // Tick every 250ms while running so elapsed/ETA update.
   useEffect(() => {
     if (view !== 'running') return;
@@ -136,6 +144,8 @@ export default function RunDashboard() {
   const startRun = async () => {
     if (!client || !presetsData) return;
     setError(null);
+    runUnsubRef.current?.();
+    runUnsubRef.current = null;
     const presetNames = presetsData.groups[presetGroup] ?? [presetGroup];
     const initial = new Map<string, PresetState>();
     for (const name of presetNames) {
@@ -177,9 +187,10 @@ export default function RunDashboard() {
       setRunId(id);
 
       const unsubscribe = client.subscribe(id, (e: RunnerEvent) => handleEvent(e));
-      // Cleanup on view change handled via ref-equivalent: store unsubscribe.
-      (window as unknown as { __psiSwarmUnsub?: () => void }).__psiSwarmUnsub = unsubscribe;
+      runUnsubRef.current = unsubscribe;
     } catch (err) {
+      runUnsubRef.current?.();
+      runUnsubRef.current = null;
       setError((err as Error).message);
       setView('form');
     }
@@ -232,6 +243,8 @@ export default function RunDashboard() {
     } catch (err) {
       setError((err as Error).message);
     }
+    runUnsubRef.current?.();
+    runUnsubRef.current = null;
     setView('done');
   };
 
