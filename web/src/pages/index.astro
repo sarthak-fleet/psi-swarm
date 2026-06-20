@@ -32,6 +32,10 @@ import RunDashboard from '../components/RunDashboard.tsx';
           gallery
         </a>
       </header>
+      <div id="psi-static-install" class="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] p-4 font-mono text-sm text-[var(--color-dim)]">
+        <p class="m-0 mb-2 text-[var(--color-text)]">Install &amp; run locally:</p>
+        <pre class="m-0 overflow-x-auto text-[var(--color-cyan)]">npx psi-swarm run https://yoursite.com --runs 5 --presets desktop --reason</pre>
+      </div>
       <RunDashboard client:idle />
     </main>
   </body>
