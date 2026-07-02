@@ -17,7 +17,8 @@
     "build:cli": "pnpm --filter psi-swarm run build",
     "build:web": "pnpm --filter psi-swarm-web run build",
     "dev:cli": "pnpm --filter psi-swarm run dev",
-    "install:skill": "node scripts/install-skill.mjs"
+    "install:skill": "node scripts/install-skill.mjs",
+    "deploy": "node scripts/manual-deploy.mjs deploy.yml deploy.yml"
   },
   "engines": {
     "node": ">=20 <24",
